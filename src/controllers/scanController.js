@@ -1,4 +1,5 @@
-const { ScanRun, Entitlement } = require('../models');
+const { ScanRun, ScanReport, Entitlement } = require('../models');
+const { sanitizeReportsPayload } = require('../utils/reportStorage');
 
 // POST /api/v1/scans/start
 const startScan = async (req, res) => {
@@ -81,7 +82,8 @@ const completeScan = async (req, res) => {
       humanAttestationCount,
       semanticReviewCount,
       coveragePercent,
-      reportPathsLocal
+      reportPathsLocal,
+      reports
     } = req.body;
 
     scanRun.completedAt = new Date();
@@ -97,9 +99,28 @@ const completeScan = async (req, res) => {
     scanRun.coveragePercent = coveragePercent || 0;
     scanRun.reportPathsLocal = reportPathsLocal || scanRun.reportPathsLocal;
 
+    const sanitizedReports = sanitizeReportsPayload(reports);
+    if (sanitizedReports) {
+      await ScanReport.findOneAndUpdate(
+        { scanId },
+        {
+          scanId,
+          organizationId: req.org._id,
+          reports: sanitizedReports,
+          uploadedAt: new Date(),
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+      scanRun.reportsUploaded = true;
+    }
+
     await scanRun.save();
 
-    res.status(200).json({ status: 'completed', scanId: scanRun.scanId });
+    res.status(200).json({
+      status: 'completed',
+      scanId: scanRun.scanId,
+      reportsUploaded: Boolean(sanitizedReports),
+    });
   } catch (error) {
     req.app.get('logger').error(error, 'Completing scan log failed');
     res.status(500).json({ error: 'Internal server error occurred.' });

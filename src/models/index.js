@@ -96,6 +96,7 @@ const ScanRunSchema = new Schema({
     byosyncImpact: { type: String },
     mindMap: { type: String },
   },
+  reportsUploaded: { type: Boolean, default: false },
   errorSummary: { type: String },
   createdAt: { type: Date, default: Date.now }
 });
@@ -244,6 +245,21 @@ const AppReleaseSchema = new Schema({
 
 AppReleaseSchema.index({ platform: 1, channel: 1, version: -1 });
 
+// 13. ScanReport Schema (cloud-stored report content for admin portal)
+const ScanReportSchema = new Schema({
+  scanId: { type: String, required: true, unique: true },
+  organizationId: { type: Schema.Types.ObjectId, ref: 'Organization', required: true },
+  reports: {
+    founder: { type: String },
+    mindMap: { type: String },
+    impact: { type: String },
+    tickets: { type: String },
+  },
+  uploadedAt: { type: Date, default: Date.now },
+});
+
+ScanReportSchema.index({ organizationId: 1, uploadedAt: -1 });
+
 // Expose Mongoose compilation models
 module.exports = {
   Organization: mongoose.model('Organization', OrganizationSchema),
@@ -257,5 +273,6 @@ module.exports = {
   SupportTicket: mongoose.model('SupportTicket', SupportTicketSchema),
   SupportMessage: mongoose.model('SupportMessage', SupportMessageSchema),
   AdminAuditLog: mongoose.model('AdminAuditLog', AdminAuditLogSchema),
-  AppRelease: mongoose.model('AppRelease', AppReleaseSchema)
+  AppRelease: mongoose.model('AppRelease', AppReleaseSchema),
+  ScanReport: mongoose.model('ScanReport', ScanReportSchema),
 };

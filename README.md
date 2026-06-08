@@ -35,6 +35,14 @@ After deploy, open `https://<your-project>.vercel.app/admin`.
 
 > **Note:** Real-time Socket.io features (live support chat) require a persistent Node server (e.g. Railway or Render). REST API and the admin dashboard work on Vercel.
 
+## Cloud report viewing
+
+When a desktop user completes a scan, the app uploads report HTML to MongoDB. Admins view them at `/admin` → **Scan Reports**.
+
+1. Set `API_BASE_URL=https://<your-vercel-app>.vercel.app` in `.env`, then run `npm run seed` so the desktop client points at production.
+2. Or update **Remote Config** in the admin portal with your Vercel URL as `api.baseUrl`.
+3. Users must register in the desktop app and complete a scan with telemetry consent enabled.
+
 ## Environment variables
 
 | Variable | Required | Description |

@@ -102,9 +102,9 @@ const seedDatabase = async () => {
             notifications: true
           },
           api: {
-            baseUrl: envName === 'production' ? 'https://api.byosync.com' : `https://api-${envName}.byosync.com`,
-            socketUrl: envName === 'production' ? 'wss://api.byosync.com' : `wss://api-${envName}.byosync.com`,
-            updateUrl: envName === 'production' ? 'https://api.byosync.com/api/v1/releases/check' : `https://api-${envName}.byosync.com/api/v1/releases/check`
+            baseUrl: process.env.API_BASE_URL || 'http://localhost:3000',
+            socketUrl: process.env.API_BASE_URL || 'http://localhost:3000',
+            updateUrl: `${process.env.API_BASE_URL || 'http://localhost:3000'}/api/v1/releases/check`
           },
           minSupportedAppVersion: '1.0.0',
           forceUpdateBelowVersion: '0.9.0',
