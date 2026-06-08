@@ -21,18 +21,21 @@ const logger = pino({
   } : undefined,
 });
 
+const isServerless = Boolean(process.env.VERCEL);
+
 const app = express();
-const server = http.createServer(app);
+const server = isServerless ? null : http.createServer(app);
 
-// Initialize Socket.io
-const io = new Server(server, {
-  cors: {
-    origin: '*', // Adjust to specific origin in production
-    methods: ['GET', 'POST'],
-  },
-});
+// Socket.io requires a persistent HTTP server (not available on Vercel serverless)
+const io = isServerless
+  ? null
+  : new Server(server, {
+    cors: {
+      origin: '*',
+      methods: ['GET', 'POST'],
+    },
+  });
 
-// Attach io instance to express app so routes can access it
 app.set('io', io);
 app.set('logger', logger);
 
@@ -119,7 +122,11 @@ const apiRouter = require('./src/routes/api');
 app.use('/api/v1', apiRouter);
 
 // Mount Admin Portal Static Console
-app.use('/admin', express.static(path.join(__dirname, 'admin-portal')));
+const adminPortalDir = path.join(__dirname, 'admin-portal');
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(adminPortalDir, 'index.html'));
+});
+app.use('/admin', express.static(adminPortalDir));
 
 // Fallback Route
 app.use((req, res, next) => {
@@ -141,23 +148,23 @@ const startServer = async () => {
   });
 };
 
-// Handle socket connections via Socket Gateway
-const { initializeSockets } = require('./src/sockets/gateway');
-initializeSockets(io);
+if (!isServerless) {
+  const { initializeSockets } = require('./src/sockets/gateway');
+  initializeSockets(io);
 
-// Handle graceful shutdowns
-const gracefulShutdown = () => {
-  logger.info('⚠️ Shutting down server gracefully...');
-  server.close(async () => {
-    logger.info('HTTP server closed.');
-    await mongoose.connection.close(false);
-    logger.info('Mongo connection closed. Exiting process.');
-    process.exit(0);
-  });
-};
+  const gracefulShutdown = () => {
+    logger.info('⚠️ Shutting down server gracefully...');
+    server.close(async () => {
+      logger.info('HTTP server closed.');
+      await mongoose.connection.close(false);
+      logger.info('Mongo connection closed. Exiting process.');
+      process.exit(0);
+    });
+  };
 
-process.on('SIGTERM', gracefulShutdown);
-process.on('SIGINT', gracefulShutdown);
+  process.on('SIGTERM', gracefulShutdown);
+  process.on('SIGINT', gracefulShutdown);
+}
 
 if (require.main === module) {
   startServer();
