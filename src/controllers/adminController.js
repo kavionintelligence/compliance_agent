@@ -63,18 +63,38 @@ const getScansSummary = async (req, res) => {
         $group: {
           _id: null,
           avgDuration: { $avg: '$durationMs' },
-          totalFindings: { $sum: '$findingCount' }
+          totalFindings: { $sum: '$findingCount' },
+          totalProbes: { $sum: '$runtimeProbeCount' },
+          totalPasses: { $sum: '$runtimePassCount' },
+          totalGaps: { $sum: '$runtimeGapCount' },
+          totalInconclusive: { $sum: '$runtimeInconclusiveCount' },
+          totalBlocked: { $sum: '$runtimeBlockedCount' }
         }
       }
     ]);
 
-    const aggregates = stats.length > 0 ? stats[0] : { avgDuration: 0, totalFindings: 0 };
+    const aggregates = stats.length > 0 ? stats[0] : {
+      avgDuration: 0,
+      totalFindings: 0,
+      totalProbes: 0,
+      totalPasses: 0,
+      totalGaps: 0,
+      totalInconclusive: 0,
+      totalBlocked: 0
+    };
 
     res.status(200).json({
       total: totalScans,
       health: { ok: okScans, warning: warningScans, failed: failedScans },
       avgDurationMs: Math.round(aggregates.avgDuration || 0),
-      totalFindingsFound: aggregates.totalFindings || 0
+      totalFindingsFound: aggregates.totalFindings || 0,
+      dvl: {
+        totalProbes: aggregates.totalProbes || 0,
+        totalPasses: aggregates.totalPasses || 0,
+        totalGaps: aggregates.totalGaps || 0,
+        totalInconclusive: aggregates.totalInconclusive || 0,
+        totalBlocked: aggregates.totalBlocked || 0
+      }
     });
   } catch (error) {
     req.app.get('logger').error(error, 'Aggregating scans summary failed');

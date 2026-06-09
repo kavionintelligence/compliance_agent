@@ -90,6 +90,20 @@ const ScanRunSchema = new Schema({
   humanAttestationCount: { type: Number, default: 0 },
   semanticReviewCount: { type: Number, default: 0 },
   coveragePercent: { type: Number, default: 0 },
+  // DVL runtime counters
+  runtimeProbeCount: { type: Number, default: 0 },
+  runtimePassCount: { type: Number, default: 0 },
+  runtimeGapCount: { type: Number, default: 0 },
+  runtimeInconclusiveCount: { type: Number, default: 0 },
+  runtimeBlockedCount: { type: Number, default: 0 },
+  executedProbes: [{
+    probeId: { type: String },
+    controlId: { type: String },
+    verdict: { type: String },
+    reason: { type: String },
+    reproCommand: { type: String },
+    timestamp: { type: Date }
+  }],
   reportPathsLocal: {
     founderReport: { type: String },
     developerTickets: { type: String },
@@ -144,7 +158,9 @@ const RemoteConfigSchema = new Schema({
     llmReview: { type: Boolean, default: true },
     autoUpdate: { type: Boolean, default: true },
     usageTelemetry: { type: Boolean, default: true },
-    notifications: { type: Boolean, default: true }
+    notifications: { type: Boolean, default: true },
+    enableDynamicVerification: { type: Boolean, default: false },
+    allowLocalRepoExecution: { type: Boolean, default: false }
   },
   api: {
     baseUrl: { type: String },

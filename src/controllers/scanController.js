@@ -83,7 +83,13 @@ const completeScan = async (req, res) => {
       semanticReviewCount,
       coveragePercent,
       reportPathsLocal,
-      reports
+      reports,
+      runtimeProbeCount,
+      runtimePassCount,
+      runtimeGapCount,
+      runtimeInconclusiveCount,
+      runtimeBlockedCount,
+      executedProbes
     } = req.body;
 
     scanRun.completedAt = new Date();
@@ -98,6 +104,14 @@ const completeScan = async (req, res) => {
     scanRun.semanticReviewCount = semanticReviewCount || 0;
     scanRun.coveragePercent = coveragePercent || 0;
     scanRun.reportPathsLocal = reportPathsLocal || scanRun.reportPathsLocal;
+
+    // Record DVL telemetry
+    scanRun.runtimeProbeCount = runtimeProbeCount || 0;
+    scanRun.runtimePassCount = runtimePassCount || 0;
+    scanRun.runtimeGapCount = runtimeGapCount || 0;
+    scanRun.runtimeInconclusiveCount = runtimeInconclusiveCount || 0;
+    scanRun.runtimeBlockedCount = runtimeBlockedCount || 0;
+    scanRun.executedProbes = executedProbes || [];
 
     const sanitizedReports = sanitizeReportsPayload(reports);
     if (sanitizedReports) {

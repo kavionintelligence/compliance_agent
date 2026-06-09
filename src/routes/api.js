@@ -30,6 +30,7 @@ router.post('/scans/error', authenticateUser, scanController.logScanError);
 
 // ── LLM Proxy Endpoints (Secure) ──────────────────────────────────────────────
 router.post('/llm/review', authenticateUser, llmController.handleLlmReview);
+router.post('/llm/generate-probe', authenticateUser, llmController.handleGenerateProbe);
 
 // ── App Update Check Endpoint ────────────────────────────────────────────────
 // GET /api/v1/releases/check?version=X&platform=Y&channel=Z
