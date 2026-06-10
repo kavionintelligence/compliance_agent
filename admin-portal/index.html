@@ -1315,7 +1315,7 @@
         llm: {
           enabled: true,
           provider: 'company_proxy',
-          modelName: document.getElementById('cfg-llm-model').value,
+          modelName: document.getElementById('cfg-llm-model').value.trim(),
           // Blank = keep existing key (the server preserves it); only a
           // non-empty value replaces the stored key.
           apiKey: document.getElementById('cfg-llm-key').value.trim(),

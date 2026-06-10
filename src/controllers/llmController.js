@@ -49,7 +49,8 @@ const getActiveLlmSettings = async () => {
       break;
     }
   }
-  return { modelName, apiKey };
+  // Admin-typed values can carry stray whitespace which breaks the Gemini URL.
+  return { modelName: String(modelName).trim(), apiKey: apiKey ? String(apiKey).trim() : apiKey };
 };
 
 // POST /api/v1/llm/review
