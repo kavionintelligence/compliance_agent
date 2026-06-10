@@ -1,4 +1,4 @@
-const { ScanRun, ScanReport, Entitlement } = require('../models');
+const { ScanRun, ScanReport, Entitlement, Project, ScanRevision } = require('../models');
 const { sanitizeReportsPayload } = require('../utils/reportStorage');
 
 // POST /api/v1/scans/start
@@ -33,8 +33,24 @@ const startScan = async (req, res) => {
       }
     }
 
+    let project = null;
+    const projectName = req.body.projectName;
+    if (projectName) {
+      project = await Project.findOneAndUpdate(
+        { organizationId: req.org._id, name: projectName },
+        {
+          organizationId: req.org._id,
+          name: projectName,
+          targetFingerprint: targetFingerprint || undefined,
+          status: 'active',
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+    }
+
     const scanRun = await ScanRun.create({
       scanId,
+      projectId: project?._id,
       userId: req.user._id,
       organizationId: req.org._id,
       deviceId: req.deviceId,
@@ -89,7 +105,13 @@ const completeScan = async (req, res) => {
       runtimeGapCount,
       runtimeInconclusiveCount,
       runtimeBlockedCount,
-      executedProbes
+      executedProbes,
+      dvlProbeCount,
+      dvlVerifiedPass,
+      dvlVerifiedGap,
+      dvlInconclusive,
+      dvlBlocked,
+      projectName,
     } = req.body;
 
     scanRun.completedAt = new Date();
@@ -105,13 +127,41 @@ const completeScan = async (req, res) => {
     scanRun.coveragePercent = coveragePercent || 0;
     scanRun.reportPathsLocal = reportPathsLocal || scanRun.reportPathsLocal;
 
-    // Record DVL telemetry
-    scanRun.runtimeProbeCount = runtimeProbeCount || 0;
-    scanRun.runtimePassCount = runtimePassCount || 0;
-    scanRun.runtimeGapCount = runtimeGapCount || 0;
-    scanRun.runtimeInconclusiveCount = runtimeInconclusiveCount || 0;
-    scanRun.runtimeBlockedCount = runtimeBlockedCount || 0;
+    // Record DVL telemetry (accept canonical and legacy client field names)
+    scanRun.runtimeProbeCount = runtimeProbeCount || dvlProbeCount || 0;
+    scanRun.runtimePassCount = runtimePassCount || dvlVerifiedPass || 0;
+    scanRun.runtimeGapCount = runtimeGapCount || dvlVerifiedGap || 0;
+    scanRun.runtimeInconclusiveCount = runtimeInconclusiveCount || dvlInconclusive || 0;
+    scanRun.runtimeBlockedCount = runtimeBlockedCount || dvlBlocked || 0;
     scanRun.executedProbes = executedProbes || [];
+
+    if (projectName && !scanRun.projectId) {
+      const project = await Project.findOneAndUpdate(
+        { organizationId: req.org._id, name: projectName },
+        {
+          organizationId: req.org._id,
+          name: projectName,
+          targetFingerprint: scanRun.targetFingerprint,
+          status: 'active',
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+      scanRun.projectId = project._id;
+    }
+
+    await ScanRevision.create({
+      projectId: scanRun.projectId,
+      organizationId: req.org._id,
+      scanId: scanRun.scanId,
+      baseScanId: scanRun.scanId,
+      revisionType: 'full_scan',
+      revisionNumber: 1,
+      localScanDir: reportPathsLocal?.founderReport
+        ? String(reportPathsLocal.founderReport).replace(/founder_report\.html$/i, '')
+        : undefined,
+      framework: scanRun.framework,
+      changedControls: [],
+    });
 
     const sanitizedReports = sanitizeReportsPayload(reports);
     if (sanitizedReports) {

@@ -8,7 +8,12 @@ const {
   AppRelease,
   AdminAuditLog,
   SupportTicket,
-  SupportMessage
+  SupportMessage,
+  Project,
+  ScanRevision,
+  TargetedRecheckJob,
+  FindingChangeLog,
+  EvidenceSubmission,
 } = require('../models');
 
 // Helper to write audit trail logs
@@ -273,8 +278,26 @@ const getAuditLogs = async (req, res) => {
 // GET /api/v1/admin/scans
 const getScansList = async (req, res) => {
   try {
-    const scans = await ScanRun.find({}).sort({ startedAt: -1 });
-    res.status(200).json(scans);
+    const scans = await ScanRun.find({})
+      .populate('userId', 'name email')
+      .sort({ startedAt: -1 })
+      .lean();
+
+    // Group running scans count per user
+    const runningScansCounts = await ScanRun.aggregate([
+      { $match: { completedAt: { $exists: false } } },
+      { $group: { _id: '$userId', count: { $sum: 1 } } }
+    ]);
+    
+    const countMap = {};
+    runningScansCounts.forEach(g => { countMap[g._id.toString()] = g.count; });
+    
+    const enrichedScans = scans.map(s => ({
+      ...s,
+      userActiveScans: s.userId && s.userId._id ? (countMap[s.userId._id.toString()] || 0) : 0
+    }));
+
+    res.status(200).json(enrichedScans);
   } catch (error) {
     res.status(500).json({ error: 'Internal server error occurred.' });
   }
@@ -283,7 +306,9 @@ const getScansList = async (req, res) => {
 // GET /api/v1/admin/support/tickets
 const getSupportTickets = async (req, res) => {
   try {
-    const tickets = await SupportTicket.find({}).sort({ lastMessageAt: -1 });
+    const tickets = await SupportTicket.find({})
+      .populate('userId', 'name email')
+      .sort({ lastMessageAt: -1 });
     res.status(200).json(tickets);
   } catch (error) {
     req.app.get('logger').error(error, 'Fetching support tickets failed');
@@ -303,6 +328,59 @@ const getTicketMessages = async (req, res) => {
   }
 };
 
+// GET /api/v1/admin/projects
+const getProjects = async (req, res) => {
+  try {
+    const projects = await Project.find({}).sort({ updatedAt: -1 }).lean();
+    const enriched = await Promise.all(projects.map(async (project) => {
+      const fullScans = await ScanRevision.countDocuments({ projectId: project._id, revisionType: 'full_scan' });
+      const targetedFixes = await ScanRevision.countDocuments({ projectId: project._id, revisionType: 'targeted_fix' });
+      const latestScan = await ScanRun.findOne({ projectId: project._id }).sort({ startedAt: -1 }).lean();
+      return { ...project, fullScans, targetedFixes, latestScan };
+    }));
+    res.status(200).json(enriched);
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error occurred.' });
+  }
+};
+
+// GET /api/v1/admin/projects/:projectId
+const getProjectDetail = async (req, res) => {
+  try {
+    const project = await Project.findById(req.params.projectId).lean();
+    if (!project) return res.status(404).json({ error: 'Project not found.' });
+
+    const scans = await ScanRun.find({ projectId: project._id }).sort({ startedAt: -1 }).lean();
+    const revisions = await ScanRevision.find({ projectId: project._id }).sort({ createdAt: -1 }).limit(50).lean();
+    const recheckJobs = await TargetedRecheckJob.find({ projectId: project._id }).sort({ createdAt: -1 }).limit(50).lean();
+    const findingChanges = await FindingChangeLog.find({ projectId: project._id }).sort({ changedAt: -1 }).limit(100).lean();
+
+    res.status(200).json({ project, scans, revisions, recheckJobs, findingChanges });
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error occurred.' });
+  }
+};
+
+// GET /api/v1/admin/recheck-jobs
+const getRecheckJobs = async (req, res) => {
+  try {
+    const jobs = await TargetedRecheckJob.find({}).sort({ createdAt: -1 }).limit(100).lean();
+    res.status(200).json(jobs);
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error occurred.' });
+  }
+};
+
+// GET /api/v1/admin/finding-changes
+const getFindingChanges = async (req, res) => {
+  try {
+    const changes = await FindingChangeLog.find({}).sort({ changedAt: -1 }).limit(100).lean();
+    res.status(200).json(changes);
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error occurred.' });
+  }
+};
+
 module.exports = {
   getUsers,
   getOrganizations,
@@ -314,5 +392,9 @@ module.exports = {
   getAuditLogs,
   getScansList,
   getSupportTickets,
-  getTicketMessages
+  getTicketMessages,
+  getProjects,
+  getProjectDetail,
+  getRecheckJobs,
+  getFindingChanges,
 };

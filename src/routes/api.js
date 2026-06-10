@@ -11,6 +11,7 @@ const scanController = require('../controllers/scanController');
 const llmController = require('../controllers/llmController');
 const adminController = require('../controllers/adminController');
 const reportsController = require('../controllers/reportsController');
+const recheckController = require('../controllers/recheckController');
 
 const { AppRelease } = require('../models');
 
@@ -27,6 +28,7 @@ router.get('/config/client', configController.getClientConfig);
 router.post('/scans/start', authenticateUser, scanController.startScan);
 router.post('/scans/complete', authenticateUser, scanController.completeScan);
 router.post('/scans/error', authenticateUser, scanController.logScanError);
+router.post('/scans/recheck/complete', authenticateUser, recheckController.completeRecheck);
 
 // ── LLM Proxy Endpoints (Secure) ──────────────────────────────────────────────
 router.post('/llm/review', authenticateUser, llmController.handleLlmReview);
@@ -80,6 +82,10 @@ router.post('/admin/notifications', authenticateUser, requireRole(['admin']), ad
 router.post('/admin/releases', authenticateUser, requireRole(['admin']), adminController.publishRelease);
 router.get('/admin/audit-logs', authenticateUser, requireRole(['admin']), adminController.getAuditLogs);
 router.get('/admin/scans', authenticateUser, requireRole(['admin']), adminController.getScansList);
+router.get('/admin/projects', authenticateUser, requireRole(['admin']), adminController.getProjects);
+router.get('/admin/projects/:projectId', authenticateUser, requireRole(['admin']), adminController.getProjectDetail);
+router.get('/admin/recheck-jobs', authenticateUser, requireRole(['admin']), adminController.getRecheckJobs);
+router.get('/admin/finding-changes', authenticateUser, requireRole(['admin']), adminController.getFindingChanges);
 router.get('/admin/scans/:scanId/report/:reportType', authenticateUser, requireRole(['admin']), reportsController.getReportContent);
 router.get('/admin/support/tickets', authenticateUser, requireRole(['admin']), adminController.getSupportTickets);
 router.get('/admin/support/tickets/:ticketId/messages', authenticateUser, requireRole(['admin']), adminController.getTicketMessages);

@@ -736,6 +736,7 @@
       <li class="menu-item" data-tab="tab-config">Remote Config</li>
       <li class="menu-item" data-tab="tab-support">Support Chats</li>
       <li class="menu-item" data-tab="tab-reports">Scan Reports</li>
+      <li class="menu-item" data-tab="tab-projects">Projects & Fixes</li>
       <li class="menu-item" data-tab="tab-releases">Releases Manager</li>
       <li class="menu-item" data-tab="tab-notifications">Banners Dispatcher</li>
       <li class="menu-item" data-tab="tab-audit">Admin Audit Logs</li>
@@ -969,6 +970,19 @@
       </div>
     </div>
 
+    <!-- TAB: Projects & Targeted Fixes -->
+    <div class="view-content" id="tab-projects">
+      <div class="reports-layout">
+        <div class="scans-list" id="projects-list" style="width: 320px; border-right: 1px solid var(--border-color); overflow-y: auto;">
+          <div style="padding: 20px; text-align: center; color: var(--text-muted)">Loading projects...</div>
+        </div>
+        <div class="reports-viewer" style="flex: 1; padding: 24px; overflow-y: auto;">
+          <h3 id="project-detail-title" style="margin-top: 0;">Select a project</h3>
+          <div id="project-detail-body" style="color: var(--text-muted);">Project scan history, targeted fixes, and finding changes appear here.</div>
+        </div>
+      </div>
+    </div>
+
     <!-- TAB 8: Scan Reports -->
     <div class="view-content" id="tab-reports">
       <div class="reports-layout">
@@ -1105,7 +1119,75 @@
       if (tabId === 'tab-config') loadRemoteConfigForm();
       if (tabId === 'tab-support') loadSupportTickets();
       if (tabId === 'tab-reports') loadScanReportsList();
+      if (tabId === 'tab-projects') loadProjectsList();
       if (tabId === 'tab-audit') loadAuditLogs();
+    }
+
+    async function loadProjectsList() {
+      const listEl = document.getElementById('projects-list');
+      const titleEl = document.getElementById('project-detail-title');
+      const bodyEl = document.getElementById('project-detail-body');
+      if (!listEl) return;
+      listEl.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-muted)">Loading projects...</div>';
+      try {
+        const res = await fetch(`${BASE_URL}/api/v1/admin/projects`, {
+          headers: { 'Authorization': `Bearer ${jwtToken}` }
+        });
+        const projects = await res.json();
+        if (!Array.isArray(projects) || !projects.length) {
+          listEl.innerHTML = '<div style="padding: 20px; color: var(--text-muted)">No projects yet. Complete a scan from the desktop app to create one.</div>';
+          return;
+        }
+        listEl.innerHTML = projects.map((project) => `
+          <button type="button" class="scan-report-item" data-project-id="${project._id}" style="width:100%; text-align:left; padding:12px 16px; border:none; background:transparent; color:inherit; cursor:pointer; border-bottom:1px solid var(--border-color);">
+            <div style="font-weight:600;">${project.name}</div>
+            <div style="font-size:12px; color:var(--text-muted);">${project.fullScans || project.fullScanCount || 0} full · ${project.targetedFixes || project.targetedFixCount || 0} fixes</div>
+          </button>
+        `).join('');
+        listEl.querySelectorAll('[data-project-id]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const projectId = btn.getAttribute('data-project-id');
+            titleEl.innerText = btn.querySelector('div').innerText;
+            bodyEl.innerHTML = 'Loading project detail...';
+            const detailRes = await fetch(`${BASE_URL}/api/v1/admin/projects/${projectId}`, {
+              headers: { 'Authorization': `Bearer ${jwtToken}` }
+            });
+            const detail = await detailRes.json();
+            const revisions = (detail.revisions || []).map((rev) => `
+              <tr>
+                <td>${rev.revisionType || 'scan'}</td>
+                <td>rev ${rev.revisionNumber || 1}</td>
+                <td>${rev.framework || '-'}</td>
+                <td>${(rev.changedControls || []).join(', ') || '-'}</td>
+                <td>${rev.createdAt ? new Date(rev.createdAt).toLocaleString() : '-'}</td>
+              </tr>
+            `).join('');
+            const changes = (detail.findingChanges || []).map((change) => `
+              <tr>
+                <td>${change.controlId || change.findingId || '-'}</td>
+                <td>${change.previousStatus || change.oldStatus || '-'} → ${change.newStatus || '-'}</td>
+                <td>${(change.evidenceTypes || []).join(', ') || '-'}</td>
+                <td>${change.changedAt || change.createdAt ? new Date(change.changedAt || change.createdAt).toLocaleString() : '-'}</td>
+              </tr>
+            `).join('');
+            bodyEl.innerHTML = `
+              <div style="display:grid; gap:20px;">
+                <div>
+                  <h4>Revisions</h4>
+                  <table class="data-table"><thead><tr><th>Type</th><th>Rev</th><th>Framework</th><th>Changed Controls</th><th>Date</th></tr></thead><tbody>${revisions || '<tr><td colspan="5">No revisions</td></tr>'}</tbody></table>
+                </div>
+                <div>
+                  <h4>Finding Changes</h4>
+                  <table class="data-table"><thead><tr><th>Control</th><th>Status Change</th><th>Evidence</th><th>Date</th></tr></thead><tbody>${changes || '<tr><td colspan="4">No targeted fixes yet</td></tr>'}</tbody></table>
+                </div>
+              </div>
+            `;
+          });
+        });
+      } catch (err) {
+        console.error('Failed to load projects', err);
+        listEl.innerHTML = '<div style="padding: 20px; color: #f87171;">Failed to load projects.</div>';
+      }
     }
 
     // Dynamic telemetry fetching helper
@@ -1357,13 +1439,15 @@
 
         DOM.ticketsList.innerHTML = tickets.map(ticket => {
           const isActive = ticket.ticketId === activeTicketId ? 'active' : '';
+          const userStr = ticket.userId ? `${ticket.userId.name} (${ticket.userId.email})` : 'Unknown User';
           return `
             <div class="ticket-item ${isActive}" data-ticket-id="${ticket.ticketId}" data-subject="${ticket.subject}">
               <div class="ticket-item-header">
                 <span>${ticket.ticketId}</span>
                 <span class="badge-status ${ticket.status === 'open' ? 'active' : 'suspended'}">${ticket.status}</span>
               </div>
-              <div class="ticket-subject">${ticket.subject}</div>
+              <div class="ticket-subject" style="margin-bottom: 4px;">${ticket.subject}</div>
+              <div style="font-size: 11px; color: var(--text-muted);">From: ${userStr}</div>
             </div>
           `;
         }).join('');
@@ -1501,16 +1585,22 @@
         DOM.reportsScansList.innerHTML = scans.map(scan => {
           const dateStr = scan.completedAt ? new Date(scan.completedAt).toLocaleString() : 'Running...';
           const isActive = scan.scanId === selectedScanId ? 'active' : '';
+          const userStr = scan.userId ? `${scan.userId.name} (${scan.userId.email})` : 'Unknown User';
+          const runningCount = scan.userActiveScans || 0;
           return `
             <div class="scan-item ${isActive}" data-scan-id="${scan.scanId}">
               <div class="scan-item-header">
                 <span class="scan-item-id">${scan.scanId}</span>
                 <span class="badge-status ${scan.scanHealth === 'ok' ? 'active' : 'suspended'}">${scan.scanHealth}</span>
               </div>
-              <div class="scan-item-meta">
+              <div class="scan-item-meta" style="margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--border-color);">
+                <strong>User:</strong> ${userStr}<br>
+                <strong>Active Scans for User:</strong> ${runningCount}<br>
                 <strong>Framework:</strong> ${scan.framework}<br>
                 <strong>Date:</strong> ${dateStr}<br>
-                <strong>Reports:</strong> ${scan.reportsUploaded ? '☁️ Cloud' : '⚠️ Not uploaded'}
+                <div style="margin-top: 8px;">
+                  <a href="${BASE_URL}/api/v1/admin/scans/${scan.scanId}/report/founder" target="_blank" class="secondary-btn" style="display: inline-block; text-decoration: none; text-align: center;">Open Report HTML</a>
+                </div>
               </div>
             </div>
           `;

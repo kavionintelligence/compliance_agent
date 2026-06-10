@@ -85,6 +85,7 @@ const initializeSockets = (io) => {
           ticketId = `TICKET-GENERAL-${organizationId}`;
         }
 
+        let isNewTicket = false;
         // Validate ticket belongs to the user's organization
         let ticket = await SupportTicket.findOne({
           ticketId,
@@ -102,6 +103,7 @@ const initializeSockets = (io) => {
               priority: 'normal',
               lastMessageAt: new Date()
             });
+            isNewTicket = true;
           } else {
             if (callback) callback({ error: 'Ticket not found or permission denied.' });
             return;
@@ -137,6 +139,34 @@ const initializeSockets = (io) => {
         socket.to('room:admin').emit('support:message', messagePayload);
 
         if (callback) callback({ status: 'sent', message: messagePayload });
+
+        // Auto-reply for new tickets
+        if (isNewTicket) {
+          setTimeout(async () => {
+            try {
+              const autoReply = await SupportMessage.create({
+                ticketId: ticket.ticketId,
+                senderId: userId,
+                senderRole: 'admin',
+                message: 'will get back to you in few minutes',
+                createdAt: new Date()
+              });
+              const autoPayload = {
+                ticketId: autoReply.ticketId,
+                messageId: autoReply._id,
+                senderId: autoReply.senderId,
+                senderRole: autoReply.senderRole,
+                message: autoReply.message,
+                createdAt: autoReply.createdAt
+              };
+              socket.emit('support:message', autoPayload);
+              socket.to(`org:${ticket.organizationId}`).emit('support:message', autoPayload);
+              socket.to('room:admin').emit('support:message', autoPayload);
+            } catch (err) {
+              logger.error('Failed to send auto-reply:', err);
+            }
+          }, 1000);
+        }
       } catch (err) {
         logger.error('Error handling socket support:message:', err);
         if (callback) callback({ error: 'Failed to process support message.' });

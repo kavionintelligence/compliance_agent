@@ -69,6 +69,7 @@ DeviceSessionSchema.index({ userId: 1, lastSeenAt: -1 });
 // 5. ScanRun Schema
 const ScanRunSchema = new Schema({
   scanId: { type: String, required: true, unique: true },
+  projectId: { type: Schema.Types.ObjectId, ref: 'Project' },
   userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   organizationId: { type: Schema.Types.ObjectId, ref: 'Organization', required: true },
   deviceId: { type: String, required: true },
@@ -276,6 +277,91 @@ const ScanReportSchema = new Schema({
 
 ScanReportSchema.index({ organizationId: 1, uploadedAt: -1 });
 
+// 14. Project Schema
+const ProjectSchema = new Schema({
+  organizationId: { type: Schema.Types.ObjectId, ref: 'Organization', required: true },
+  name: { type: String, required: true },
+  targetFingerprint: { type: String },
+  description: { type: String },
+  status: { type: String, enum: ['active', 'archived'], default: 'active' },
+}, { timestamps: true });
+
+ProjectSchema.index({ organizationId: 1, name: 1 });
+
+// 15. ScanRevision Schema
+const ScanRevisionSchema = new Schema({
+  projectId: { type: Schema.Types.ObjectId, ref: 'Project' },
+  organizationId: { type: Schema.Types.ObjectId, ref: 'Organization', required: true },
+  scanId: { type: String, required: true },
+  baseScanId: { type: String },
+  revisionType: { type: String, enum: ['full_scan', 'targeted_fix'], default: 'full_scan' },
+  revisionNumber: { type: Number, default: 1 },
+  reportVersion: { type: String },
+  localScanDir: { type: String },
+  framework: { type: String },
+  changedControls: [{ type: String }],
+  createdAt: { type: Date, default: Date.now },
+});
+
+ScanRevisionSchema.index({ projectId: 1, createdAt: -1 });
+ScanRevisionSchema.index({ organizationId: 1, scanId: 1 });
+
+// 16. EvidenceSubmission Schema
+const EvidenceSubmissionSchema = new Schema({
+  organizationId: { type: Schema.Types.ObjectId, ref: 'Organization', required: true },
+  projectId: { type: Schema.Types.ObjectId, ref: 'Project' },
+  scanId: { type: String, required: true },
+  recheckJobId: { type: Schema.Types.ObjectId, ref: 'TargetedRecheckJob' },
+  evidenceType: { type: String, required: true },
+  source: { type: String, required: true },
+  sha256: { type: String },
+  trustLevel: { type: String },
+  submittedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+  createdAt: { type: Date, default: Date.now },
+});
+
+EvidenceSubmissionSchema.index({ scanId: 1, createdAt: -1 });
+
+// 17. TargetedRecheckJob Schema
+const TargetedRecheckJobSchema = new Schema({
+  jobId: { type: String, required: true, unique: true },
+  organizationId: { type: Schema.Types.ObjectId, ref: 'Organization', required: true },
+  projectId: { type: Schema.Types.ObjectId, ref: 'Project' },
+  baseScanId: { type: String, required: true },
+  controlId: { type: String, required: true },
+  findingId: { type: String },
+  status: { type: String, enum: ['queued', 'running', 'complete', 'failed'], default: 'complete' },
+  verificationMethod: { type: String },
+  previousStatus: { type: String },
+  newStatus: { type: String },
+  localScanDir: { type: String },
+  sessionId: { type: String },
+  createdBy: { type: Schema.Types.ObjectId, ref: 'User' },
+  createdAt: { type: Date, default: Date.now },
+});
+
+TargetedRecheckJobSchema.index({ organizationId: 1, createdAt: -1 });
+TargetedRecheckJobSchema.index({ baseScanId: 1, controlId: 1 });
+
+// 18. FindingChangeLog Schema
+const FindingChangeLogSchema = new Schema({
+  organizationId: { type: Schema.Types.ObjectId, ref: 'Organization', required: true },
+  projectId: { type: Schema.Types.ObjectId, ref: 'Project' },
+  scanId: { type: String, required: true },
+  recheckJobId: { type: Schema.Types.ObjectId, ref: 'TargetedRecheckJob' },
+  controlId: { type: String, required: true },
+  findingId: { type: String },
+  previousStatus: { type: String },
+  newStatus: { type: String },
+  verificationMethod: { type: String },
+  evidenceTypes: [{ type: String }],
+  mindMapPath: [{ type: String }],
+  changedAt: { type: Date, default: Date.now },
+});
+
+FindingChangeLogSchema.index({ scanId: 1, changedAt: -1 });
+FindingChangeLogSchema.index({ organizationId: 1, controlId: 1 });
+
 // Expose Mongoose compilation models
 module.exports = {
   Organization: mongoose.model('Organization', OrganizationSchema),
@@ -291,4 +377,9 @@ module.exports = {
   AdminAuditLog: mongoose.model('AdminAuditLog', AdminAuditLogSchema),
   AppRelease: mongoose.model('AppRelease', AppReleaseSchema),
   ScanReport: mongoose.model('ScanReport', ScanReportSchema),
+  Project: mongoose.model('Project', ProjectSchema),
+  ScanRevision: mongoose.model('ScanRevision', ScanRevisionSchema),
+  EvidenceSubmission: mongoose.model('EvidenceSubmission', EvidenceSubmissionSchema),
+  TargetedRecheckJob: mongoose.model('TargetedRecheckJob', TargetedRecheckJobSchema),
+  FindingChangeLog: mongoose.model('FindingChangeLog', FindingChangeLogSchema),
 };
