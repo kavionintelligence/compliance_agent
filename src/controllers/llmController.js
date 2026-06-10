@@ -33,33 +33,23 @@ const postRequest = (url, data) => {
   });
 };
 
-// Mock response builder when no API Key is available
-const buildMockReview = (question) => {
-  return {
-    llm_status: 'llm_verified',
-    confidence: 4,
-    summary: 'Mock Verification: Analyzed evidence payload and confirmed that consent checkboxes and withdrawal settings comply with statutory guidelines.',
-    citations: [
-      {
-        file: 'frontend/src/components/SignupForm.jsx',
-        line_start: 12,
-        line_end: 25,
-        claim: 'Verified that service consent and marketing consent are separated and unticked by default.'
-      }
-    ],
-    limitations: [
-      'Evaluation is derived from static mock analysis rules.'
-    ],
-    recommended_deterministic_follow_up: [
-      'Ensure that consent fields map to separate column definitions in the database schema.'
-    ],
-    token_usage: {
-      prompt_tokens: 150,
-      completion_tokens: 75,
-      estimated_cost_usd: 0.0,
-      company_marked_up_cost_usd: 0.0
+// Resolve the active LLM config: explicit CONFIG_ENV first, then production,
+// then dev. The previous hardcoded 'dev' lookup silently ignored configs the
+// admin saved under any other environment name.
+const getActiveLlmSettings = async () => {
+  const candidates = [process.env.CONFIG_ENV, 'production', 'dev'].filter(Boolean);
+  let modelName = 'gemini-2.5-flash';
+  let apiKey = env.GEMINI_API_KEY;
+
+  for (const environment of candidates) {
+    const activeConfig = await RemoteConfig.findOne({ environment, active: true });
+    if (activeConfig && activeConfig.llm) {
+      if (activeConfig.llm.modelName) modelName = activeConfig.llm.modelName;
+      if (activeConfig.llm.apiKey) apiKey = activeConfig.llm.apiKey;
+      break;
     }
-  };
+  }
+  return { modelName, apiKey };
 };
 
 // POST /api/v1/llm/review
@@ -105,30 +95,23 @@ const handleLlmReview = async (req, res) => {
     }
 
     // 2. Load active remote configuration settings dynamically
-    const activeConfig = await RemoteConfig.findOne({ environment: 'dev', active: true });
-    let modelName = 'gemini-2.5-flash';
-    let apiKey = env.GEMINI_API_KEY;
+    const { modelName, apiKey } = await getActiveLlmSettings();
 
-    if (activeConfig && activeConfig.llm) {
-      if (activeConfig.llm.modelName) {
-        modelName = activeConfig.llm.modelName;
-      }
-      if (activeConfig.llm.apiKey) {
-        apiKey = activeConfig.llm.apiKey;
-      }
+    // HONESTY GUARANTEE: we never fabricate a review. If no API key is
+    // configured, the client must mark the finding as "review unavailable",
+    // not receive a fake "llm_verified" verdict.
+    if (!apiKey) {
+      return res.status(503).json({
+        error: 'LLM review is not configured on the server. Set the Gemini API key in the admin panel (Remote Config) or GEMINI_API_KEY env.',
+        code: 'LLM_NOT_CONFIGURED'
+      });
     }
 
-    // Execute Request (Gemini vs Mock Fallback)
     let reviewResponse;
     let promptTokens = 0;
     let completionTokens = 0;
 
-    if (!apiKey) {
-      // Mock Fallback
-      reviewResponse = buildMockReview(question);
-      promptTokens = reviewResponse.token_usage.prompt_tokens;
-      completionTokens = reviewResponse.token_usage.completion_tokens;
-    } else {
+    {
       // Real API call to Gemini (using structured outputs JSON schema)
       const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
       
@@ -210,10 +193,13 @@ const handleLlmReview = async (req, res) => {
           company_marked_up_cost_usd: 0.0
         };
       } catch (err) {
-        req.app.get('logger').error(err, 'Gemini request processing failed, falling back to Mock');
-        reviewResponse = buildMockReview(question);
-        promptTokens = reviewResponse.token_usage.prompt_tokens;
-        completionTokens = reviewResponse.token_usage.completion_tokens;
+        req.app.get('logger').error(err, 'Gemini request processing failed');
+        // Never substitute a fabricated review — surface the failure so the
+        // client records the finding as "review unavailable".
+        return res.status(502).json({
+          error: 'The upstream LLM request failed. The review was not performed.',
+          code: 'LLM_UPSTREAM_ERROR'
+        });
       }
     }
 
@@ -222,8 +208,8 @@ const handleLlmReview = async (req, res) => {
       scanId,
       userId: req.user._id,
       organizationId: req.org._id,
-      provider: apiKey ? 'gemini' : 'mock',
-      modelName: apiKey ? modelName : 'mock-model',
+      provider: 'gemini',
+      modelName,
       promptTemplateVersion: 'v1',
       redactionMode: 'strict',
       promptTokens,
@@ -237,75 +223,6 @@ const handleLlmReview = async (req, res) => {
     req.app.get('logger').error(error, 'LLM Review proxy failed');
     res.status(500).json({ error: 'Internal server error occurred during review.' });
   }
-};
-
-// Mock probe builder when no API Key is available
-const buildMockProbe = (finding) => {
-  const cid = finding.control_id || 'AUTH-001';
-  const fid = finding.id || `${cid}:finding`;
-  if (cid === 'AUTH-001') {
-    return {
-      probe_id: 'AUTH-LLM-ADMIN-CHECK',
-      control_id: 'AUTH-001',
-      finding_id: fid,
-      probe_source: 'llm_generated_probe',
-      probe_type: 'http_request',
-      risk_tier: 'website_or_api',
-      target: {
-        method: 'GET',
-        path: '/api/admin/settings'
-      },
-      expected_secure_behavior: {
-        status_codes: [401, 403]
-      },
-      unsafe_if: {
-        status_codes: [200]
-      },
-      destructive: false,
-      timeout_ms: 5000
-    };
-  } else if (cid === 'PRIVACY-NOTICE-001') {
-    return {
-      probe_id: 'PRIVACY-LLM-CRAWL-CHECK',
-      control_id: 'PRIVACY-NOTICE-001',
-      finding_id: fid,
-      probe_source: 'llm_generated_probe',
-      probe_type: 'browser_action',
-      risk_tier: 'website',
-      target: {
-        method: 'GET',
-        path: '/privacy-policy'
-      },
-      expected_secure_behavior: {
-        status_codes: [200]
-      },
-      unsafe_if: {
-        status_codes: [404, 500]
-      },
-      destructive: false,
-      timeout_ms: 5000
-    };
-  }
-  return {
-    probe_id: `${cid}-LLM-GENERIC-CHECK`,
-    control_id: cid,
-    finding_id: fid,
-    probe_source: 'llm_generated_probe',
-    probe_type: 'http_request',
-    risk_tier: 'website',
-    target: {
-      method: 'GET',
-      path: '/'
-    },
-    expected_secure_behavior: {
-      status_codes: [200]
-    },
-    unsafe_if: {
-      status_codes: [500]
-    },
-    destructive: false,
-    timeout_ms: 5000
-  };
 };
 
 // POST /api/v1/llm/generate-probe
@@ -344,30 +261,22 @@ const handleGenerateProbe = async (req, res) => {
     }
 
     // 2. Load active remote configuration settings dynamically
-    const activeConfig = await RemoteConfig.findOne({ environment: 'dev', active: true });
-    let modelName = 'gemini-2.5-flash';
-    let apiKey = env.GEMINI_API_KEY;
+    const { modelName, apiKey } = await getActiveLlmSettings();
 
-    if (activeConfig && activeConfig.llm) {
-      if (activeConfig.llm.modelName) {
-        modelName = activeConfig.llm.modelName;
-      }
-      if (activeConfig.llm.apiKey) {
-        apiKey = activeConfig.llm.apiKey;
-      }
+    // HONESTY GUARANTEE: no fabricated probes. The DVL skips LLM-generated
+    // probes when the server cannot produce a real one.
+    if (!apiKey) {
+      return res.status(503).json({
+        error: 'LLM probe generation is not configured on the server. Set the Gemini API key in the admin panel (Remote Config) or GEMINI_API_KEY env.',
+        code: 'LLM_NOT_CONFIGURED'
+      });
     }
 
-    // Execute Request (Gemini vs Mock Fallback)
     let probeResponse;
     let promptTokens = 0;
     let completionTokens = 0;
 
-    if (!apiKey) {
-      // Mock Fallback
-      probeResponse = buildMockProbe(finding);
-      promptTokens = 120;
-      completionTokens = 60;
-    } else {
+    {
       // Real API call to Gemini (using structured outputs JSON schema)
       const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
       const defaultSysPrompt = "You are an AI Security Auditor. Design an active runtime verification probe that queries the system to check if this control is properly enforced or not. The probe must conform to the JSON schema of a probe contract. Keep it safe: do not use mutating methods unless explicitly safe, do not check destructive actions, and do not use personal data.";
@@ -451,10 +360,11 @@ const handleGenerateProbe = async (req, res) => {
         promptTokens = usageMetadata.promptTokenCount || 0;
         completionTokens = usageMetadata.candidatesTokenCount || 0;
       } catch (err) {
-        req.app.get('logger').error(err, 'Gemini probe generation failed, falling back to Mock');
-        probeResponse = buildMockProbe(finding);
-        promptTokens = 120;
-        completionTokens = 60;
+        req.app.get('logger').error(err, 'Gemini probe generation failed');
+        return res.status(502).json({
+          error: 'The upstream LLM request failed. No probe was generated.',
+          code: 'LLM_UPSTREAM_ERROR'
+        });
       }
     }
 
@@ -463,8 +373,8 @@ const handleGenerateProbe = async (req, res) => {
       scanId: req.body.scanId || 'dvl-generation',
       userId: req.user._id,
       organizationId: req.org._id,
-      provider: apiKey ? 'gemini' : 'mock',
-      modelName: apiKey ? modelName : 'mock-model',
+      provider: 'gemini',
+      modelName,
       promptTemplateVersion: 'v1',
       redactionMode: 'strict',
       promptTokens,

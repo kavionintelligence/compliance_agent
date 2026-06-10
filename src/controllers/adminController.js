@@ -146,6 +146,13 @@ const updateRemoteConfig = async (req, res) => {
 
     const before = await RemoteConfig.findOne({ environment, active: true });
 
+    // The portal never receives the stored API key back (it is redacted from
+    // /config/client), so a blank key field means "keep the existing key".
+    const llmConfig = llm ? { ...llm } : llm;
+    if (llmConfig && !llmConfig.apiKey && before?.llm?.apiKey) {
+      llmConfig.apiKey = before.llm.apiKey;
+    }
+
     // Deactivate previous active configs for environment
     await RemoteConfig.updateMany({ environment }, { active: false });
 
@@ -153,7 +160,7 @@ const updateRemoteConfig = async (req, res) => {
       environment,
       version,
       active: true,
-      llm,
+      llm: llmConfig,
       features,
       api,
       minSupportedAppVersion,

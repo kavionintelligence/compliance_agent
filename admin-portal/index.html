@@ -1268,7 +1268,13 @@
           document.getElementById('cfg-env').value = config.environment;
           document.getElementById('cfg-version').value = config.version;
           document.getElementById('cfg-llm-model').value = config.llm?.modelName || 'gemini-2.5-flash';
-          document.getElementById('cfg-llm-key').value = config.llm?.apiKey || '';
+          // The API key is never sent back to the browser (server-side secret).
+          // Blank field = keep the currently stored key.
+          const keyInput = document.getElementById('cfg-llm-key');
+          keyInput.value = '';
+          keyInput.placeholder = config.llm?.apiKeyConfigured
+            ? 'Key configured ✓ — leave blank to keep, type to replace'
+            : 'No key configured — LLM review is OFF until you set one';
           document.getElementById('cfg-llm-budget').value = config.llm?.tokenBudgetPerScan || 200000;
           document.getElementById('cfg-min-ver').value = config.minSupportedAppVersion || '1.0.0';
           document.getElementById('cfg-force-ver').value = config.forceUpdateBelowVersion || '0.9.0';
@@ -1310,7 +1316,9 @@
           enabled: true,
           provider: 'company_proxy',
           modelName: document.getElementById('cfg-llm-model').value,
-          apiKey: document.getElementById('cfg-llm-key').value,
+          // Blank = keep existing key (the server preserves it); only a
+          // non-empty value replaces the stored key.
+          apiKey: document.getElementById('cfg-llm-key').value.trim(),
           redactionMode: 'strict',
           tokenBudgetPerScan: parseInt(document.getElementById('cfg-llm-budget').value),
           markupPercent: 0
