@@ -176,7 +176,9 @@ const updateRemoteConfig = async (req, res) => {
 
     // Broadcast Socket notification that configuration changed
     const io = req.app.get('io');
-    io.emit('config:update_available', { environment, version });
+    if (io) {
+      io.emit('config:update_available', { environment, version });
+    }
 
     res.status(201).json({ status: 'ok', config: newConfig });
   } catch (error) {
@@ -217,14 +219,16 @@ const createNotification = async (req, res) => {
 
     // Dispatch broadcast via socket
     const io = req.app.get('io');
-    io.emit('notification:new', {
-      id: notification._id,
-      title: notification.title,
-      message: notification.message,
-      severity: notification.severity,
-      targetType: notification.targetType,
-      targetValue: notification.targetValue
-    });
+    if (io) {
+      io.emit('notification:new', {
+        id: notification._id,
+        title: notification.title,
+        message: notification.message,
+        severity: notification.severity,
+        targetType: notification.targetType,
+        targetValue: notification.targetValue
+      });
+    }
 
     res.status(201).json({ status: 'ok', notification });
   } catch (error) {
