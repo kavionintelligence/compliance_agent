@@ -167,6 +167,7 @@ router.get('/admin/scans/summary',               authenticateUser, requireRole([
 router.get('/admin/usage/tokens',                authenticateUser, requireRole(['admin']), adminLimiter, adminController.getTokensUsage);
 router.post('/admin/config',                     authenticateUser, requireRole(['admin']), adminLimiter, adminController.updateRemoteConfig);
 router.post('/admin/notifications',              authenticateUser, requireRole(['admin']), adminLimiter, adminController.createNotification);
+router.get('/admin/notifications',               authenticateUser, requireRole(['admin']), adminLimiter, adminController.getNotifications);
 router.post('/admin/releases',                   authenticateUser, requireRole(['admin']), adminLimiter, adminController.publishRelease);
 router.get('/admin/audit-logs',                  authenticateUser, requireRole(['admin']), adminLimiter, adminController.getAuditLogs);
 router.get('/admin/scans',                       authenticateUser, requireRole(['admin']), adminLimiter, adminController.getScansList);

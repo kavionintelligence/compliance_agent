@@ -949,6 +949,22 @@
           <button type="submit" class="btn-save">Broadcast Notification Alert</button>
         </form>
       </div>
+
+      <div class="card-large" style="margin-top: 24px;">
+        <h3 class="card-title">Dispatched Banners Log</h3>
+        <table id="tbl-notifications">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Title</th>
+              <th>Severity</th>
+              <th>Status</th>
+              <th>Sent By</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </div>
 
     <!-- TAB 7: Audit Logs -->
@@ -1021,6 +1037,7 @@
     let jwtToken = sessionStorage.getItem('admin_jwt');
     let socket;
     let activeTicketId = null;
+    let activeTicketUserStr = '';
     let supportPollTimer = null;
     let activeTicketSubject = '';
     let lastTicketsSignature = '';
@@ -1398,11 +1415,42 @@
         if (res.ok) {
           alert('Notification banner dispatched to all desktop clients!');
           DOM.notifyForm.reset();
+          loadNotifications(); // Refresh list
         }
       } catch (err) {
         alert(err.message);
       }
     });
+
+    async function loadNotifications() {
+      try {
+        const res = await fetch(`${BASE_URL}/api/v1/admin/notifications`, {
+          headers: { 'Authorization': `Bearer ${jwtToken}` }
+        });
+        if (res.ok) {
+          const notifs = await res.json();
+          const tbody = document.querySelector('#tbl-notifications tbody');
+          tbody.innerHTML = '';
+          notifs.forEach(n => {
+            const tr = document.createElement('tr');
+            const isActive = new Date(n.expiresAt) > new Date() ? '<span style="color:var(--accent-green)">Active</span>' : '<span style="color:var(--text-muted)">Expired</span>';
+            tr.innerHTML = `
+              <td>${new Date(n.createdAt).toLocaleString()}</td>
+              <td>${n.title}</td>
+              <td>${n.severity}</td>
+              <td>${isActive}</td>
+              <td>${n.createdBy?.name || 'Admin'}</td>
+            `;
+            tbody.appendChild(tr);
+          });
+        }
+      } catch (e) {
+        console.error('Failed to load notifications', e);
+      }
+    }
+
+    // Call loadNotifications when the tab is switched to
+    document.querySelector('[data-tab="tab-notifications"]').addEventListener('click', loadNotifications);
 
     // Release publish submit
     DOM.releasesForm.addEventListener('submit', async (e) => {
@@ -1468,13 +1516,13 @@
           const isActive = ticket.ticketId === activeTicketId ? 'active' : '';
           const userStr = ticket.userId ? `${ticket.userId.name} (${ticket.userId.email})` : 'Unknown User';
           return `
-            <div class="ticket-item ${isActive}" data-ticket-id="${ticket.ticketId}" data-subject="${ticket.subject}">
+            <div class="ticket-item ${isActive}" data-ticket-id="${ticket.ticketId}" data-subject="${ticket.subject}" data-user-str="${userStr}">
               <div class="ticket-item-header">
-                <span>${ticket.ticketId}</span>
+                <span>${ticket.userId ? ticket.userId.name : ticket.ticketId}</span>
                 <span class="badge-status ${ticket.status === 'open' ? 'active' : 'suspended'}">${ticket.status}</span>
               </div>
               <div class="ticket-subject" style="margin-bottom: 4px;">${ticket.subject}</div>
-              <div style="font-size: 11px; color: var(--text-muted);">From: ${userStr}</div>
+              <div style="font-size: 11px; color: var(--text-muted);">${userStr}</div>
             </div>
           `;
           }).join('');
@@ -1483,18 +1531,23 @@
 
         // Auto-select first ticket if none active
         if (!activeTicketId && tickets.length > 0) {
-          selectTicket(tickets[0].ticketId, tickets[0].subject);
+          const first = tickets[0];
+          const firstUserStr = first.userId ? `${first.userId.name} (${first.userId.email})` : '';
+          selectTicket(first.ticketId, first.subject, firstUserStr);
         }
       } catch (err) {
         DOM.ticketsList.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--accent-red)">Failed to load tickets: ${err.message}</div>`;
       }
     }
 
-    async function selectTicket(ticketId, subject) {
+    async function selectTicket(ticketId, subject, userStr) {
       activeTicketId = ticketId;
       activeTicketSubject = subject || activeTicketSubject || '';
+      activeTicketUserStr = userStr || activeTicketUserStr || '';
       lastMessagesSignature = '';
-      DOM.chatInboxTitle.innerText = `${ticketId} — ${subject}`;
+      // Show user name prominently in the chat header
+      const headerName = activeTicketUserStr ? `${activeTicketUserStr}` : ticketId;
+      DOM.chatInboxTitle.innerHTML = `<span style="color:var(--accent-cyan);">${headerName}</span> <span style="color:var(--text-muted);font-size:12px;font-weight:400;">— ${subject || ''}</span>`;
       DOM.chatMessages.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-muted)">Loading chat logs...</div>';
       
       // Update active list styling
@@ -1528,10 +1581,19 @@
         }
 
         messages.forEach(msg => {
+          const isAdminMsg = msg.senderRole === 'admin' || msg.senderRole === 'support';
+          const senderLabel = isAdminMsg ? 'Support' : (activeTicketUserStr ? activeTicketUserStr.split(' (')[0] : 'User');
+          const wrapper = document.createElement('div');
+          wrapper.style.cssText = `display:flex; flex-direction:column; align-items:${isAdminMsg ? 'flex-end' : 'flex-start'}; gap:2px; margin-bottom:4px;`;
+          const label = document.createElement('div');
+          label.style.cssText = 'font-size:10px; color:var(--text-muted); padding:0 4px;';
+          label.innerText = `${senderLabel} • ${msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : ''}`;
           const msgDiv = document.createElement('div');
-          msgDiv.className = `chat-msg ${msg.senderRole === 'admin' || msg.senderRole === 'support' ? 'admin' : 'user'}`;
+          msgDiv.className = `chat-msg ${isAdminMsg ? 'admin' : 'user'}`;
           msgDiv.innerText = msg.message;
-          DOM.chatMessages.appendChild(msgDiv);
+          wrapper.appendChild(label);
+          wrapper.appendChild(msgDiv);
+          DOM.chatMessages.appendChild(wrapper);
         });
         DOM.chatMessages.scrollTop = DOM.chatMessages.scrollHeight;
       } catch (err) {
@@ -1555,7 +1617,8 @@
       if (item) {
         const ticketId = item.getAttribute('data-ticket-id');
         const subject = item.getAttribute('data-subject');
-        selectTicket(ticketId, subject);
+        const userStr = item.getAttribute('data-user-str');
+        selectTicket(ticketId, subject, userStr);
       }
     });
 

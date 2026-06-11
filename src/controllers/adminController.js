@@ -233,6 +233,21 @@ const createNotification = async (req, res) => {
   }
 };
 
+const getNotifications = async (req, res) => {
+  try {
+    const Notification = require('../models/Notification'); // Ensure we have the model
+    const limit = parseInt(req.query.limit) || 50;
+    const notifications = await Notification.find()
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .populate('createdBy', 'name email');
+    res.json(notifications);
+  } catch (error) {
+    req.app.get('logger').error(error, 'Fetching notifications failed');
+    res.status(500).json({ error: 'Internal server error occurred.' });
+  }
+};
+
 // POST /api/v1/admin/releases
 const publishRelease = async (req, res) => {
   try {
@@ -545,6 +560,7 @@ module.exports = {
   getTokensUsage,
   updateRemoteConfig,
   createNotification,
+  getNotifications,
   publishRelease,
   getAuditLogs,
   getScansList,
