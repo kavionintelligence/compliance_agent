@@ -26,6 +26,11 @@ const isServerless = Boolean(process.env.VERCEL);
 const app = express();
 const server = isServerless ? null : http.createServer(app);
 
+// Trust the Vercel / reverse-proxy x-forwarded-for header so that req.ip
+// correctly reflects the real client IP (required for IP-based rate limiting
+// on auth endpoints to work properly on serverless deployments).
+app.set('trust proxy', 1);
+
 // Socket.io requires a persistent HTTP server (not available on Vercel serverless)
 const io = isServerless
   ? null
@@ -69,12 +74,21 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(mongoSanitize());
 
 // Rate Limiting
+// Global safety net: catches anything not covered by per-route limiters.
+// Keys by user ID when authenticated (100 users = 100 independent buckets),
+// falls back to IP for unauthenticated traffic.
+// Per-route tighter limits are applied in src/routes/api.js.
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: 500,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later.' },
+  keyGenerator: (req) => {
+    // Use user ID when available so concurrent users don't share a global bucket
+    const userId = req.user?._id?.toString();
+    return userId || req.ip;
+  },
 });
 app.use(globalLimiter);
 
@@ -89,16 +103,6 @@ app.use(async (req, res, next) => {
     return res.status(503).json({ error: 'Database unavailable. Please try again shortly.' });
   }
 });
-
-// Auth-specific rate limiter (more strict)
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // Limit each IP to 10 register/login requests per windowMs
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many login attempts. Please try again after 15 minutes.' },
-});
-app.set('authLimiter', authLimiter);
 
 // ── Health Check Endpoints ───────────────────────────────────────────────────
 
