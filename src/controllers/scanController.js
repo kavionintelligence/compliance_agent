@@ -1,4 +1,4 @@
-const { ScanRun, ScanReport, Entitlement, Project, ScanRevision } = require('../models');
+const { ScanRun, ScanReport, Entitlement, Project, ScanRevision, LlmUsage } = require('../models');
 const { sanitizeReportsPayload } = require('../utils/reportStorage');
 
 // POST /api/v1/scans/start
@@ -15,6 +15,14 @@ const startScan = async (req, res) => {
 
     if (!scanId || !framework) {
       return res.status(400).json({ error: 'scanId and framework are required fields.' });
+    }
+
+    const existingScanRun = await ScanRun.findOne({ scanId, organizationId: req.org._id });
+    if (existingScanRun) {
+      return res.status(200).json({
+        status: existingScanRun.completedAt ? 'already_completed' : 'already_started',
+        scanId: existingScanRun.scanId,
+      });
     }
 
     // Check Entitlement scan limits before starting
@@ -82,9 +90,26 @@ const completeScan = async (req, res) => {
       return res.status(400).json({ error: 'scanId is a required field.' });
     }
 
-    const scanRun = await ScanRun.findOne({ scanId, organizationId: req.org._id });
+    let scanRun = await ScanRun.findOne({ scanId, organizationId: req.org._id });
     if (!scanRun) {
-      return res.status(404).json({ error: 'Active scan run session not found.' });
+      // Completion telemetry can arrive after an offline/failed start event.
+      // Keep admin reporting truthful by creating a repair row instead of
+      // dropping a successfully generated local report.
+      scanRun = await ScanRun.create({
+        scanId,
+        userId: req.user._id,
+        organizationId: req.org._id,
+        deviceId: req.deviceId,
+        appVersion: req.headers['x-app-version'] || 'unknown',
+        targetType: req.body.targetType || 'unknown',
+        targetFingerprint: req.body.targetFingerprint,
+        framework: req.body.framework || 'unknown',
+        platform: req.body.platform,
+        mode: req.body.mode,
+        startedAt: new Date(Date.now() - Number(req.body.durationMs || 0)),
+        scanHealth: 'warning',
+        errorSummary: 'Scan start telemetry was missing; completion repaired this admin record.',
+      });
     }
 
     const {
@@ -112,6 +137,7 @@ const completeScan = async (req, res) => {
       dvlInconclusive,
       dvlBlocked,
       projectName,
+      llmUsage,
     } = req.body;
 
     scanRun.completedAt = new Date();
@@ -151,19 +177,54 @@ const completeScan = async (req, res) => {
       scanRun.projectId = project._id;
     }
 
-    await ScanRevision.create({
-      projectId: scanRun.projectId,
-      organizationId: req.org._id,
-      scanId: scanRun.scanId,
-      baseScanId: scanRun.scanId,
-      revisionType: 'full_scan',
-      revisionNumber: 1,
-      localScanDir: reportPathsLocal?.founderReport
-        ? String(reportPathsLocal.founderReport).replace(/founder_report\.html$/i, '')
-        : undefined,
-      framework: scanRun.framework,
-      changedControls: [],
-    });
+    await ScanRevision.findOneAndUpdate(
+      {
+        organizationId: req.org._id,
+        scanId: scanRun.scanId,
+        revisionType: 'full_scan',
+        revisionNumber: 1,
+      },
+      {
+        projectId: scanRun.projectId,
+        organizationId: req.org._id,
+        scanId: scanRun.scanId,
+        baseScanId: scanRun.scanId,
+        revisionType: 'full_scan',
+        revisionNumber: 1,
+        localScanDir: reportPathsLocal?.founderReport
+          ? String(reportPathsLocal.founderReport).replace(/founder_report\.html$/i, '')
+          : undefined,
+        framework: scanRun.framework,
+        changedControls: [],
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    if (llmUsage && (llmUsage.promptTokens || llmUsage.completionTokens || llmUsage.baseCostUsd || llmUsage.markedUpCostUsd)) {
+      await LlmUsage.findOneAndUpdate(
+        {
+          scanId: scanRun.scanId,
+          organizationId: req.org._id,
+          provider: llmUsage.provider || 'local_scan',
+          modelName: llmUsage.modelName || '',
+        },
+        {
+          scanId: scanRun.scanId,
+          userId: req.user._id,
+          organizationId: req.org._id,
+          provider: llmUsage.provider || 'local_scan',
+          modelName: llmUsage.modelName || '',
+          promptTemplateVersion: llmUsage.promptTemplateVersion || '',
+          redactionMode: llmUsage.redactionMode || 'strict',
+          promptTokens: Number(llmUsage.promptTokens || 0),
+          completionTokens: Number(llmUsage.completionTokens || 0),
+          baseCostUsd: Number(llmUsage.baseCostUsd || 0),
+          markedUpCostUsd: Number(llmUsage.markedUpCostUsd || 0),
+          createdAt: new Date(),
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+    }
 
     const sanitizedReports = sanitizeReportsPayload(reports);
     if (sanitizedReports) {

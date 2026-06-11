@@ -1021,6 +1021,10 @@
     let jwtToken = sessionStorage.getItem('admin_jwt');
     let socket;
     let activeTicketId = null;
+    let supportPollTimer = null;
+    let activeTicketSubject = '';
+    let lastTicketsSignature = '';
+    let lastMessagesSignature = '';
 
     const DOM = {
       loginOverlay: document.getElementById('login-overlay'),
@@ -1117,7 +1121,11 @@
       if (tabId === 'tab-dashboard') loadDashboardStats();
       if (tabId === 'tab-users') loadUserDirectory();
       if (tabId === 'tab-config') loadRemoteConfigForm();
-      if (tabId === 'tab-support') loadSupportTickets();
+      if (tabId === 'tab-support') {
+        loadSupportTickets();
+        loadActiveTicketMessages();
+        startSupportPolling();
+      }
       if (tabId === 'tab-reports') loadScanReportsList();
       if (tabId === 'tab-projects') loadProjectsList();
       if (tabId === 'tab-audit') loadAuditLogs();
@@ -1429,7 +1437,9 @@
     // ── Live Support Messaging ──
     async function loadSupportTickets() {
       try {
-        DOM.ticketsList.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-muted)">Loading tickets...</div>';
+        if (!lastTicketsSignature) {
+          DOM.ticketsList.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-muted)">Loading tickets...</div>';
+        }
         const res = await fetch(`${BASE_URL}/api/v1/admin/support/tickets`, {
           headers: { 'Authorization': `Bearer ${jwtToken}` }
         });
@@ -1442,10 +1452,19 @@
 
         if (!tickets || tickets.length === 0) {
           DOM.ticketsList.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-muted)">No support chats.</div>';
+          lastTicketsSignature = '[]';
           return;
         }
 
-        DOM.ticketsList.innerHTML = tickets.map(ticket => {
+        const signature = JSON.stringify(tickets.map(ticket => [
+          ticket.ticketId,
+          ticket.status,
+          ticket.lastMessageAt,
+          ticket.userId && ticket.userId.email
+        ]));
+
+        if (signature !== lastTicketsSignature) {
+          DOM.ticketsList.innerHTML = tickets.map(ticket => {
           const isActive = ticket.ticketId === activeTicketId ? 'active' : '';
           const userStr = ticket.userId ? `${ticket.userId.name} (${ticket.userId.email})` : 'Unknown User';
           return `
@@ -1458,7 +1477,9 @@
               <div style="font-size: 11px; color: var(--text-muted);">From: ${userStr}</div>
             </div>
           `;
-        }).join('');
+          }).join('');
+          lastTicketsSignature = signature;
+        }
 
         // Auto-select first ticket if none active
         if (!activeTicketId && tickets.length > 0) {
@@ -1471,6 +1492,8 @@
 
     async function selectTicket(ticketId, subject) {
       activeTicketId = ticketId;
+      activeTicketSubject = subject || activeTicketSubject || '';
+      lastMessagesSignature = '';
       DOM.chatInboxTitle.innerText = `${ticketId} — ${subject}`;
       DOM.chatMessages.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-muted)">Loading chat logs...</div>';
       
@@ -1483,11 +1506,20 @@
         }
       });
 
+      await loadActiveTicketMessages({ force: true });
+    }
+
+    async function loadActiveTicketMessages({ force = false } = {}) {
+      if (!activeTicketId) return;
       try {
-        const res = await fetch(`${BASE_URL}/api/v1/admin/support/tickets/${ticketId}/messages`, {
+        const res = await fetch(`${BASE_URL}/api/v1/admin/support/tickets/${activeTicketId}/messages`, {
           headers: { 'Authorization': `Bearer ${jwtToken}` }
         });
         const messages = await res.json();
+        if (!Array.isArray(messages)) return;
+        const signature = JSON.stringify(messages.map(msg => [msg._id, msg.senderRole, msg.message, msg.createdAt]));
+        if (!force && signature === lastMessagesSignature) return;
+        lastMessagesSignature = signature;
         
         DOM.chatMessages.innerHTML = '';
         if (messages.length === 0) {
@@ -1497,14 +1529,24 @@
 
         messages.forEach(msg => {
           const msgDiv = document.createElement('div');
-          msgDiv.className = `chat-msg ${msg.senderRole === 'admin' ? 'admin' : 'user'}`;
+          msgDiv.className = `chat-msg ${msg.senderRole === 'admin' || msg.senderRole === 'support' ? 'admin' : 'user'}`;
           msgDiv.innerText = msg.message;
           DOM.chatMessages.appendChild(msgDiv);
         });
         DOM.chatMessages.scrollTop = DOM.chatMessages.scrollHeight;
       } catch (err) {
-        DOM.chatMessages.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--accent-red)">Failed to load messages: ${err.message}</div>`;
+        if (force) {
+          DOM.chatMessages.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--accent-red)">Failed to load messages: ${err.message}</div>`;
+        }
       }
+    }
+
+    function startSupportPolling() {
+      if (supportPollTimer) return;
+      supportPollTimer = window.setInterval(async () => {
+        await loadSupportTickets();
+        await loadActiveTicketMessages();
+      }, 7000);
     }
 
     // Event delegation for ticket items click (avoids CSP inline onclick issues)
@@ -1522,32 +1564,23 @@
       if (!text || !activeTicketId) return;
       DOM.chatInputBox.value = '';
 
-      // Append locally
-      appendAdminChatMessage(text);
-
-      if (socket && socket.connected) {
-        socket.emit('support:message', {
-          ticketId: activeTicketId,
-          message: text
+      try {
+        const res = await fetch(`${BASE_URL}/api/v1/admin/support/tickets/${activeTicketId}/messages`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${jwtToken}`
+          },
+          body: JSON.stringify({ message: text })
         });
-      } else {
-        try {
-          const res = await fetch(`${BASE_URL}/api/v1/admin/support/tickets/${activeTicketId}/messages`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${jwtToken}`
-            },
-            body: JSON.stringify({ message: text })
-          });
-          const data = await res.json();
-          if (!res.ok || data.error) {
-            throw new Error(data.error || `HTTP ${res.status}`);
-          }
-          await loadSupportTickets();
-        } catch (err) {
-          alert(`Failed to send support reply: ${err.message}`);
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          throw new Error(data.error || `HTTP ${res.status}`);
         }
+        await loadSupportTickets();
+        await loadActiveTicketMessages({ force: true });
+      } catch (err) {
+        alert(`Failed to send support reply: ${err.message}`);
       }
     });
 
@@ -1561,6 +1594,7 @@
 
     function initializeAdminSaaS() {
       loadDashboardStats();
+      startSupportPolling();
 
       // Bind Socket
       if (typeof io !== 'undefined') {

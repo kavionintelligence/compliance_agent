@@ -116,6 +116,8 @@ const getTokensUsage = async (req, res) => {
           _id: '$provider',
           totalPromptTokens: { $sum: '$promptTokens' },
           totalCompletionTokens: { $sum: '$completionTokens' },
+          totalBaseCostUsd: { $sum: '$baseCostUsd' },
+          totalMarkedUpCostUsd: { $sum: '$markedUpCostUsd' },
           count: { $sum: 1 }
         }
       }
