@@ -821,6 +821,7 @@
               <th>Role</th>
               <th>Status</th>
               <th>Registered At</th>
+              <th>Action</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -1278,8 +1279,37 @@
             <td>${u.role}</td>
             <td><span class="badge-status ${u.status === 'active' ? 'active' : 'suspended'}">${u.status}</span></td>
             <td>${new Date(u.createdAt).toLocaleString()}</td>
+            <td>
+              <button class="btn-delete-user" data-id="${u._id}" data-name="${u.name}" title="Delete User & Data" style="background:none; border:none; cursor:pointer; font-size:16px;">🗑️</button>
+            </td>
           </tr>
         `).join('');
+
+        // Attach event listeners for delete buttons
+        document.querySelectorAll('.btn-delete-user').forEach(btn => {
+          btn.addEventListener('click', async (e) => {
+            const userId = e.currentTarget.getAttribute('data-id');
+            const userName = e.currentTarget.getAttribute('data-name');
+            if (confirm(`Are you sure you want to completely delete ${userName} and ALL their associated data? This cannot be undone.`)) {
+              try {
+                const delRes = await fetch(`${BASE_URL}/api/v1/admin/users/${userId}`, {
+                  method: 'DELETE',
+                  headers: { 'Authorization': `Bearer ${jwtToken}` }
+                });
+                if (delRes.ok) {
+                  alert(`User ${userName} deleted successfully.`);
+                  loadDashboardStats(); // Refresh the list
+                } else {
+                  const errorData = await delRes.json();
+                  alert(`Failed to delete user: ${errorData.error}`);
+                }
+              } catch (err) {
+                console.error(err);
+                alert(`Error deleting user: ${err.message}`);
+              }
+            }
+          });
+        });
       } catch (err) {
         console.error(err);
       }

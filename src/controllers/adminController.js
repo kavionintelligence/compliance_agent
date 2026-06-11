@@ -299,6 +299,43 @@ const getAuditLogs = async (req, res) => {
   }
 };
 
+// DELETE /api/v1/admin/users/:userId
+const hardDeleteUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { DeviceSession } = require('../models');
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // Clean up related data
+    await DeviceSession.deleteMany({ userId });
+    await ScanRun.deleteMany({ userId });
+    await LlmUsage.deleteMany({ userId });
+    
+    const tickets = await SupportTicket.find({ userId });
+    const ticketIds = tickets.map(t => t._id);
+    await SupportMessage.deleteMany({ ticket: { $in: ticketIds } });
+    await SupportTicket.deleteMany({ userId });
+
+    await Project.deleteMany({ userId });
+    await ScanRevision.deleteMany({ userId });
+    await TargetedRecheckJob.deleteMany({ userId });
+    await FindingChangeLog.deleteMany({ userId });
+    await EvidenceSubmission.deleteMany({ userId });
+
+    await User.findByIdAndDelete(userId);
+
+    await logAdminAction(req, 'HARD_DELETE_USER', 'user', userId, { email: user.email }, null);
+    
+    req.app.get('logger').info(`Hard deleted user ${userId} and all related data`);
+    res.json({ status: 'ok', message: 'User and all associated data deleted successfully.' });
+  } catch (error) {
+    req.app.get('logger').error(error, 'Failed to hard delete user');
+    res.status(500).json({ error: 'Internal server error occurred.' });
+  }
+};
+
 // GET /api/v1/admin/scans
 const getScansList = async (req, res) => {
   try {
@@ -573,4 +610,5 @@ module.exports = {
   getProjectDetail,
   getRecheckJobs,
   getFindingChanges,
+  hardDeleteUser,
 };

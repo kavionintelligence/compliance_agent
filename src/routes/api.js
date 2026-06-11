@@ -163,6 +163,7 @@ router.get('/releases/check', async (req, res) => {
 // ── Admin Operations (user-based limiter, admin role required) ────────────────
 router.get('/admin/users',                       authenticateUser, requireRole(['admin']), adminLimiter, adminController.getUsers);
 router.get('/admin/organizations',               authenticateUser, requireRole(['admin']), adminLimiter, adminController.getOrganizations);
+router.delete('/admin/users/:userId',            authenticateUser, requireRole(['admin']), adminLimiter, adminController.hardDeleteUser);
 router.get('/admin/scans/summary',               authenticateUser, requireRole(['admin']), adminLimiter, adminController.getScansSummary);
 router.get('/admin/usage/tokens',                authenticateUser, requireRole(['admin']), adminLimiter, adminController.getTokensUsage);
 router.post('/admin/config',                     authenticateUser, requireRole(['admin']), adminLimiter, adminController.updateRemoteConfig);
