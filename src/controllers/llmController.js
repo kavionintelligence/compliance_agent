@@ -113,8 +113,10 @@ const handleLlmReview = async (req, res) => {
     let completionTokens = 0;
 
     {
-      // Real API call to Gemini (using structured outputs JSON schema)
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+      // Real API call to Vertex AI (using structured outputs JSON schema)
+      const project = env.VERTEX_PROJECT;
+      const location = env.VERTEX_LOCATION;
+      const geminiUrl = `https://${location}-aiplatform.googleapis.com/v1/projects/${project}/locations/${location}/publishers/google/models/${modelName}:generateContent?key=${apiKey}`;
       
       const payload = {
         contents: [
@@ -278,8 +280,10 @@ const handleGenerateProbe = async (req, res) => {
     let completionTokens = 0;
 
     {
-      // Real API call to Gemini (using structured outputs JSON schema)
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+      // Real API call to Vertex AI (using structured outputs JSON schema)
+      const project = env.VERTEX_PROJECT;
+      const location = env.VERTEX_LOCATION;
+      const geminiUrl = `https://${location}-aiplatform.googleapis.com/v1/projects/${project}/locations/${location}/publishers/google/models/${modelName}:generateContent?key=${apiKey}`;
       const defaultSysPrompt = "You are an AI Security Auditor. Design an active runtime verification probe that queries the system to check if this control is properly enforced or not. The probe must conform to the JSON schema of a probe contract. Keep it safe: do not use mutating methods unless explicitly safe, do not check destructive actions, and do not use personal data.";
 
       const payload = {

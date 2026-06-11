@@ -125,7 +125,9 @@ const completeScan = async (req, res) => {
     scanRun.humanAttestationCount = humanAttestationCount || 0;
     scanRun.semanticReviewCount = semanticReviewCount || 0;
     scanRun.coveragePercent = coveragePercent || 0;
-    scanRun.reportPathsLocal = reportPathsLocal || scanRun.reportPathsLocal;
+    if (reportPathsLocal) {
+      scanRun.set('reportPathsLocal', reportPathsLocal);
+    }
 
     // Record DVL telemetry (accept canonical and legacy client field names)
     scanRun.runtimeProbeCount = runtimeProbeCount || dvlProbeCount || 0;

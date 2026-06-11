@@ -40,6 +40,8 @@ const envSchema = z.object({
   MFA_ISSUER: z.string().default('ByoSync Admin Portal'),
   GEMINI_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
+  VERTEX_PROJECT: z.string().default('compliance-app-498606'),
+  VERTEX_LOCATION: z.string().default('us-central1'),
   TOKEN_BUDGET_PER_SCAN: z.coerce.number().default(100000), // Default quota limit
 });
 

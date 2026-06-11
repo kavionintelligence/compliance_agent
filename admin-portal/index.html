@@ -1517,7 +1517,7 @@
       }
     });
 
-    DOM.btnSendReply.addEventListener('click', () => {
+    DOM.btnSendReply.addEventListener('click', async () => {
       const text = DOM.chatInputBox.value.trim();
       if (!text || !activeTicketId) return;
       DOM.chatInputBox.value = '';
@@ -1530,6 +1530,24 @@
           ticketId: activeTicketId,
           message: text
         });
+      } else {
+        try {
+          const res = await fetch(`${BASE_URL}/api/v1/admin/support/tickets/${activeTicketId}/messages`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${jwtToken}`
+            },
+            body: JSON.stringify({ message: text })
+          });
+          const data = await res.json();
+          if (!res.ok || data.error) {
+            throw new Error(data.error || `HTTP ${res.status}`);
+          }
+          await loadSupportTickets();
+        } catch (err) {
+          alert(`Failed to send support reply: ${err.message}`);
+        }
       }
     });
 

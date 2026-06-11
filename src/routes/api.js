@@ -30,6 +30,10 @@ router.post('/scans/complete', authenticateUser, scanController.completeScan);
 router.post('/scans/error', authenticateUser, scanController.logScanError);
 router.post('/scans/recheck/complete', authenticateUser, recheckController.completeRecheck);
 
+// ── User Support Chat REST Fallback (works on serverless too) ────────────────
+router.get('/support/messages', authenticateUser, adminController.getUserSupportMessages);
+router.post('/support/messages', authenticateUser, adminController.createUserSupportMessage);
+
 // ── LLM Proxy Endpoints (Secure) ──────────────────────────────────────────────
 router.post('/llm/review', authenticateUser, llmController.handleLlmReview);
 router.post('/llm/generate-probe', authenticateUser, llmController.handleGenerateProbe);
@@ -89,5 +93,6 @@ router.get('/admin/finding-changes', authenticateUser, requireRole(['admin']), a
 router.get('/admin/scans/:scanId/report/:reportType', authenticateUser, requireRole(['admin']), reportsController.getReportContent);
 router.get('/admin/support/tickets', authenticateUser, requireRole(['admin']), adminController.getSupportTickets);
 router.get('/admin/support/tickets/:ticketId/messages', authenticateUser, requireRole(['admin']), adminController.getTicketMessages);
+router.post('/admin/support/tickets/:ticketId/messages', authenticateUser, requireRole(['admin', 'support']), adminController.createAdminSupportMessage);
 
 module.exports = router;

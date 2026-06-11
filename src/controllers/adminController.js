@@ -335,6 +335,154 @@ const getTicketMessages = async (req, res) => {
   }
 };
 
+// POST /api/v1/support/messages
+const createUserSupportMessage = async (req, res) => {
+  try {
+    const { ticketId: rawTicketId, message } = req.body;
+    if (!message || !String(message).trim()) {
+      return res.status(400).json({ error: 'message is required.' });
+    }
+
+    const ticketId = rawTicketId && rawTicketId !== 'TICKET-GENERAL'
+      ? String(rawTicketId)
+      : `TICKET-GENERAL-${req.org._id}`;
+
+    let ticket = await SupportTicket.findOne({
+      ticketId,
+      organizationId: req.org._id,
+    });
+
+    let isNewTicket = false;
+    if (!ticket) {
+      ticket = await SupportTicket.create({
+        ticketId,
+        userId: req.user._id,
+        organizationId: req.org._id,
+        subject: 'App General Inquiry Support',
+        status: 'open',
+        priority: 'normal',
+        lastMessageAt: new Date(),
+      });
+      isNewTicket = true;
+    }
+
+    const chatMessage = await SupportMessage.create({
+      ticketId,
+      senderId: req.user._id,
+      senderRole: 'user',
+      message: String(message).trim(),
+      createdAt: new Date(),
+    });
+
+    ticket.lastMessageAt = new Date();
+    if (ticket.status === 'closed') ticket.status = 'open';
+    await ticket.save();
+
+    const payload = {
+      ticketId,
+      messageId: chatMessage._id,
+      senderId: chatMessage.senderId,
+      senderRole: chatMessage.senderRole,
+      message: chatMessage.message,
+      createdAt: chatMessage.createdAt,
+    };
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to('room:admin').emit('support:message', payload);
+      io.to(`org:${req.org._id}`).emit('support:message', payload);
+    }
+
+    let autoReply = null;
+    if (isNewTicket) {
+      const adminReply = await SupportMessage.create({
+        ticketId,
+        senderId: req.user._id,
+        senderRole: 'admin',
+        message: 'will get back to you in few minutes',
+        createdAt: new Date(),
+      });
+      autoReply = {
+        ticketId,
+        messageId: adminReply._id,
+        senderId: adminReply.senderId,
+        senderRole: adminReply.senderRole,
+        message: adminReply.message,
+        createdAt: adminReply.createdAt,
+      };
+      if (io) {
+        io.to(`org:${req.org._id}`).emit('support:message', autoReply);
+        io.to('room:admin').emit('support:message', autoReply);
+      }
+    }
+
+    return res.status(201).json({ status: 'sent', ticketId, message: payload, autoReply });
+  } catch (error) {
+    req.app.get('logger').error(error, 'Creating user support message failed');
+    return res.status(500).json({ error: 'Internal server error occurred.' });
+  }
+};
+
+// GET /api/v1/support/messages
+const getUserSupportMessages = async (req, res) => {
+  try {
+    const ticketId = req.query.ticketId && req.query.ticketId !== 'TICKET-GENERAL'
+      ? String(req.query.ticketId)
+      : `TICKET-GENERAL-${req.org._id}`;
+    const ticket = await SupportTicket.findOne({ ticketId, organizationId: req.org._id });
+    if (!ticket) return res.status(200).json({ ticketId, messages: [] });
+    const messages = await SupportMessage.find({ ticketId }).sort({ createdAt: 1 });
+    return res.status(200).json({ ticketId, messages });
+  } catch (error) {
+    req.app.get('logger').error(error, 'Fetching user support messages failed');
+    return res.status(500).json({ error: 'Internal server error occurred.' });
+  }
+};
+
+// POST /api/v1/admin/support/tickets/:ticketId/messages
+const createAdminSupportMessage = async (req, res) => {
+  try {
+    const { ticketId } = req.params;
+    const { message } = req.body;
+    if (!message || !String(message).trim()) {
+      return res.status(400).json({ error: 'message is required.' });
+    }
+    const ticket = await SupportTicket.findOne({ ticketId });
+    if (!ticket) return res.status(404).json({ error: 'Ticket not found.' });
+
+    const chatMessage = await SupportMessage.create({
+      ticketId,
+      senderId: req.user._id,
+      senderRole: req.user.role === 'support' ? 'support' : 'admin',
+      message: String(message).trim(),
+      createdAt: new Date(),
+    });
+    ticket.lastMessageAt = new Date();
+    if (ticket.status === 'open') ticket.status = 'pending';
+    await ticket.save();
+
+    const payload = {
+      ticketId,
+      messageId: chatMessage._id,
+      senderId: chatMessage.senderId,
+      senderRole: chatMessage.senderRole,
+      message: chatMessage.message,
+      createdAt: chatMessage.createdAt,
+    };
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`org:${ticket.organizationId}`).emit('support:message', payload);
+      io.to('room:admin').emit('support:message', payload);
+    }
+
+    return res.status(201).json({ status: 'sent', ticketId, message: payload });
+  } catch (error) {
+    req.app.get('logger').error(error, 'Creating admin support message failed');
+    return res.status(500).json({ error: 'Internal server error occurred.' });
+  }
+};
+
 // GET /api/v1/admin/projects
 const getProjects = async (req, res) => {
   try {
@@ -400,6 +548,9 @@ module.exports = {
   getScansList,
   getSupportTickets,
   getTicketMessages,
+  createUserSupportMessage,
+  getUserSupportMessages,
+  createAdminSupportMessage,
   getProjects,
   getProjectDetail,
   getRecheckJobs,
