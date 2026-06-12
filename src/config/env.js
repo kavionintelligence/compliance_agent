@@ -38,11 +38,17 @@ const envSchema = z.object({
     required_error: 'JWT_REFRESH_SECRET is required to rotate authentication sessions securely.',
   }).min(16, 'JWT_REFRESH_SECRET should be at least 16 characters long.'),
   MFA_ISSUER: z.string().default('ByoSync Admin Portal'),
-  GEMINI_API_KEY: z.string().optional(),
-  OPENAI_API_KEY: z.string().optional(),
+  // Vertex AI auth
+  //   Local: ambient ADC (gcloud auth application-default login) — no env var needed.
+  //   Vercel: set GOOGLE_APPLICATION_CREDENTIALS_JSON to the full ADC JSON
+  //           (type: "authorized_user" — the user OAuth2 credential from
+  //            C:\Users\khatr\AppData\Roaming\gcloud\application_default_credentials.json).
+  //           The bootstrap IIFE in llmController.js writes it to a temp file.
+  GOOGLE_APPLICATION_CREDENTIALS_JSON: z.string().optional(),
   VERTEX_PROJECT: z.string().default('compliance-app-498606'),
   VERTEX_LOCATION: z.string().default('us-central1'),
-  TOKEN_BUDGET_PER_SCAN: z.coerce.number().default(100000), // Default quota limit
+  OPENAI_API_KEY: z.string().optional(),
+  TOKEN_BUDGET_PER_SCAN: z.coerce.number().default(100000),
 });
 
 const result = envSchema.safeParse(process.env);

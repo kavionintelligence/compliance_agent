@@ -111,6 +111,7 @@ router.post('/auth/logout',                       authController.logout);
 // ── Config Endpoints (no auth, no sensitive data) ─────────────────────────────
 router.get('/config/client', configController.getClientConfig);
 
+
 // ── Scan Telemetry Endpoints (user-based limiter) ─────────────────────────────
 router.post('/scans/start',           authenticateUser, telemetryLimiter, scanController.startScan);
 router.post('/scans/complete',        authenticateUser, telemetryLimiter, scanController.completeScan);
