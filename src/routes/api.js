@@ -72,6 +72,15 @@ const authLimiter = makeIpLimiter({
   message: 'Too many login attempts. Please try again after 15 minutes.',
 });
 
+// Refresh: IP-based, lenient — the refresh token itself is the security
+// mechanism (256-bit secret + rotation + reuse detection), so IP rate limiting
+// here only needs to prevent extreme abuse, not brute-force.
+const refreshLimiter = makeIpLimiter({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 60,                   // 60 refresh calls per IP per 15min
+  message: 'Too many token refresh attempts. Please try again after 15 minutes.',
+});
+
 // Telemetry: user-based — each user can fire up to 30 scan events/min
 // (a single scan fires start + complete = 2 events; this leaves plenty of headroom)
 const telemetryLimiter = makeUserLimiter({
@@ -105,7 +114,7 @@ const llmLimiter = makeUserLimiter({
 // ── Auth Endpoints (IP-based, unauthenticated) ────────────────────────────────
 router.post('/auth/register-device', authLimiter, authController.registerDevice);
 router.post('/auth/login',           authLimiter, authController.login);
-router.post('/auth/refresh',         authLimiter, authController.refresh);
+router.post('/auth/refresh',         refreshLimiter, authController.refresh);
 router.post('/auth/logout',                       authController.logout);
 
 // ── Config Endpoints (no auth, no sensitive data) ─────────────────────────────
